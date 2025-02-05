@@ -7,16 +7,13 @@ from pathlib import Path
 import threading
 
 
-TARGET_IP = 000
-SSH_USER = 000
-SSH_PASSWORD = 000
-LOCAL_FILE = 000
-REMOTE_FILE = 000
-FOLDER = 000
-REMOTE_FOLDER = 000
-ACCDESKTOP = 000
-CRC32 = 000
-
+TARGET_IP = 0
+SSH_USER = 0
+SSH_PASSWORD = 0
+LOCAL_FILE = 0
+REMOTE_FILE =0
+FOLDER = 0
+REMOTE_FOLDER =0
 
 class Arinc615(paramiko.SSHClient):
     def __init__(self, username, password, hostname, port=22):
@@ -63,7 +60,7 @@ class Arinc615(paramiko.SSHClient):
 
     def get_remote_file_crc32(self, remote_filepath):
         try:
-            stdin, stdout, stderr = self.exec_command(f"crc32 {remote_filepath}", timeout=10) 
+            stdin, stdout, stderr = self.exec_command(f"crc32 {remote_filepath}", timeout=10) # allows terminal commands to be run on the ACC
             crc32_str = stdout.read().decode().strip()
             error = stderr.read().decode().strip()
             if error:
@@ -78,52 +75,51 @@ class Arinc615(paramiko.SSHClient):
             print(f"Error getting remote CRC32 for {remote_filepath}: {e}")
 
     def transfer_folder(self, dir_path, local_dir, log_callback):
-
         try:
-            self.sftp.stat(dir_path)
+            self.sftp.stat(dir_path) 
         except FileNotFoundError:
-            self.sftp.mkdir(dir_path)
+            self.sftp.mkdir(dir_path) 
 
         try:
-            files = os.listdir(local_dir)
+            files = os.listdir(local_dir) 
             total_files = len(files)
             for i, file in enumerate(files):
-                file = Path(file)
-                filepath = Path(local_dir) / file 
-                log_callback(f"Processing file: {file.name} ({i+1}/{total_files})")
+                file_path = Path(local_dir) / file
+                log_callback(f"Processing: {file} ({i + 1}/{total_files})")
 
-                local_file_crc32 = self.calculate_crc32(filepath)
-                if local_file_crc32 is None:
-                    print(f"Skipping {file.name} due to CRC calculation error.")
-
-                print(f"Local crc32: {local_file_crc32}")
-
-                remote_path = dir_path+"/"+file.name
-                print(remote_path)
-                try:
-                    self.sftp.put(filepath, remote_path)
-                    print(f"Successfully transfered {file.name}")
-                    log_callback(f"Successfully transfered {file.name}")
-                except Exception as e:
-                    print(f"Error transferring {file.name}: {e}")
-                    log_callback(f"Unable to transfer {file.name}: {e}")
-
-                remote_file_crc32 = self.get_remote_file_crc32(remote_path)
-                if remote_file_crc32 is None:
-                    print("Unable to calculate CRC32")
-
-                print(f"Remote crc32: {remote_file_crc32}")
-
-                if local_file_crc32 == remote_file_crc32:
-                    print(f'{file.name}: crc32 looks the same')
-                    log_callback(f'{file.name}: crc32 matches')
-                    
+                if file_path.is_dir():  
+                    remote_dir_path = f"{dir_path}/{file}" 
+                    self.transfer_folder(remote_dir_path, file_path, log_callback)
                 else:
-                    print(f'{file.name}: crc32 there is a mismatch')
-                    log_callback(f'{file.name}: crc32 mismatch')
+                    local_file_crc32 = self.calculate_crc32(file_path)
+                    if local_file_crc32 is None:
+                        print(f"Skipping {file} due to CRC calculation error.")
+
+                    print(f"Local crc32: {local_file_crc32}")
+                    remote_path = f"{dir_path}/{file}" 
+                    try:
+                        self.sftp.put(file_path, remote_path)
+                        print(f"Successfully transferred {file}")
+                        log_callback(f"Successfully transferred {file}")
+                    except Exception as e:
+                        print(f"Error transferring {file}: {e}")
+                        log_callback(f"Unable to transfer {file}: {e}")
+
+                    remote_file_crc32 = self.get_remote_file_crc32(remote_path)
+                    if remote_file_crc32 is None:
+                        print("Unable to calculate CRC32 for remote file.")
+
+                    print(f"Remote crc32: {remote_file_crc32}")
+
+                    if local_file_crc32 == remote_file_crc32:
+                        print(f'{file}: CRC32 matches')
+                        log_callback(f'{file}: CRC32 matches')
+                    else:
+                        print(f'{file}: CRC32 mismatch')
+                        log_callback(f'{file}: CRC32 mismatch')
 
         except Exception as e:
-            print("error: " + str(e))
+            print(f"Error: {e}")
 
     def get_folder(self, remote_path, local_dir, log_callback):
         try:
@@ -131,48 +127,44 @@ class Arinc615(paramiko.SSHClient):
             files = self.sftp.listdir(remote_path)
             total_files = len(files)
             for i, filename in enumerate(files):
-                log_callback(f"Downloading: {filename} ({i+1}/{total_files})")
                 remote_filepath = f"{remote_path}/{filename}"
                 local_filepath = os.path.join(local_dir, filename)
+                log_callback(f"Downloading: {filename} ({i + 1}/{total_files})")
 
                 try:
-                    self.sftp.get(remote_filepath, local_filepath)
-                    print(f"Downloaded {filename} to {local_filepath}")
+                    if self.sftp.isdir(remote_filepath):
+                        os.makedirs(local_filepath, exist_ok=True)
+                        self.get_folder(remote_filepath, local_filepath, log_callback)
+                    else:
+                        self.sftp.get(remote_filepath, local_filepath)
+                        print(f"Downloaded {filename} to {local_filepath}")
+
                 except Exception as e:
                     print(f"Error downloading {filename}: {e}")
+                
+                local_file_crc32 = self.calculate_crc32(local_filepath)
+                if local_file_crc32 is None:
+                    print(f"Skipping {local_filepath} due to CRC calculation error.")
+
+                print(f"Local crc32: {local_file_crc32}")
+
+                remote_file_crc32 = self.get_remote_file_crc32(remote_filepath)
+                if remote_file_crc32 is None:
+                    print("Unable to calculate CRC32 for remote file.")
+
+                print(f"Remote crc32: {remote_file_crc32}")
+
+                if local_file_crc32 == remote_file_crc32:
+                    print(f'{filename}: CRC32 matches')
+                    log_callback(f'{filename}: CRC32 matches')
+                else:
+                    print(f'{filename}: CRC32 mismatch')
+                    log_callback(f'{filename}: CRC32 mismatch')
 
             log_callback(f"Successfully downloaded {remote_path} to {local_dir}")
 
         except Exception as e:
             print(f"Error: {e}")
-
-    def delete_folder(self, dir_path, log_callback):
-        try:
-            cmd = "rm -r "  + dir_path
-            stdin, stdout, stderr = self.exec_command(cmd, timeout=10)
-            error = stderr.read().decode()
-            if error:
-                print(f"Error removing folder: {error}")
-                log_callback(f"Unable to delete {dir_path}: {error}")
-            else:
-                print(f"{dir_path} has been deleted")
-                log_callback(f"Successfully deleted {dir_path}")
-        except Exception as e:
-            print(f"Error deleting folder: {e}")
-
-    def delete_file(self, file_path, log_callback):
-        try:
-            cmd = "rm " + file_path
-            stdin,stdout,stderr = self.exec_command(cmd, timeout=10)
-            error = stderr.read().decode()
-            if error:
-                print(f"Error removing file: {error}")
-                log_callback(f"Unable to delete {file_path}: {error}")
-            else:
-                print(f"{file_path} has been deleted")
-                log_callback(f"Successfully deleted {file_path}")
-        except Exception as e:
-            print(f"Error deleting file: {e}")
 
     def send_file(self, acc_path, local_path, log_callback):
         try:
@@ -230,9 +222,37 @@ class Arinc615(paramiko.SSHClient):
         except Exception as e:
             print(f"Error getting file: {e}")
     
+    def delete_folder(self, dir_path, log_callback):
+        try:
+            cmd = "rm -r "  + dir_path
+            stdin, stdout, stderr = self.exec_command(cmd, timeout=10)
+            error = stderr.read().decode()
+            if error:
+                print(f"Error removing folder: {error}")
+                log_callback(f"Unable to delete {dir_path}: {error}")
+            else:
+                print(f"{dir_path} has been deleted")
+                log_callback(f"Successfully deleted {dir_path}")
+        except Exception as e:
+            print(f"Error deleting folder: {e}")
+
+    def delete_file(self, file_path, log_callback):
+        try:
+            cmd = "rm " + file_path
+            stdin,stdout,stderr = self.exec_command(cmd, timeout=10)
+            error = stderr.read().decode()
+            if error:
+                print(f"Error removing file: {error}")
+                log_callback(f"Unable to delete {file_path}: {error}")
+            else:
+                print(f"{file_path} has been deleted")
+                log_callback(f"Successfully deleted {file_path}")
+        except Exception as e:
+            print(f"Error deleting file: {e}")
+    
     def check_crc(self):
         try:
-            cmd = "bash " + ACCDESKTOP
+            cmd = "bash " + '/home/merlin/Desktop/crc32.sh'
             stdin,stdout,stderr = self.exec_command(cmd)
             error = stderr.read().decode()
             if error:
@@ -382,10 +402,10 @@ class Arinc615App(tk.Tk):
     
     def check_crc(self):
         if self.arinc:
-            self.arinc.send_file(ACCDESKTOP, CRC32, self.log)
+            self.arinc.send_file("","", self.log)
             crc = self.arinc.check_crc()
             self.log(crc)
-            self.arinc.delete_file(ACCDESKTOP, self.log)
+            self.arinc.delete_file("", self.log)
         else:
             messagebox.showerror("Error", "Not connected to the SSH server.")
 
