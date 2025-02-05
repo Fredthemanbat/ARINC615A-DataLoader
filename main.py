@@ -7,13 +7,13 @@ from pathlib import Path
 import threading
 
 
-TARGET_IP = 0
+TARGET_IP =0
 SSH_USER = 0
 SSH_PASSWORD = 0
 LOCAL_FILE = 0
-REMOTE_FILE =0
-FOLDER = 0
-REMOTE_FOLDER =0
+REMOTE_FILE = 0
+FOLDER =0
+REMOTE_FOLDER = 0
 
 class Arinc615(paramiko.SSHClient):
     def __init__(self, username, password, hostname, port=22):
@@ -81,13 +81,13 @@ class Arinc615(paramiko.SSHClient):
             self.sftp.mkdir(dir_path) 
 
         try:
-            files = os.listdir(local_dir) 
+            files = os.listdir(local_dir) # lists everything in the directory
             total_files = len(files)
             for i, file in enumerate(files):
                 file_path = Path(local_dir) / file
                 log_callback(f"Processing: {file} ({i + 1}/{total_files})")
 
-                if file_path.is_dir():  
+                if file_path.is_dir():  # added this func as a placeholder to come back to, but does something now and breaks if removed. Don't know where it's referenced
                     remote_dir_path = f"{dir_path}/{file}" 
                     self.transfer_folder(remote_dir_path, file_path, log_callback)
                 else:
@@ -126,32 +126,32 @@ class Arinc615(paramiko.SSHClient):
             os.makedirs(local_dir, exist_ok=True)
             files = self.sftp.listdir(remote_path)
             total_files = len(files)
+
             for i, filename in enumerate(files):
+                log_callback(f"Downloading: {filename} ({i+1}/{total_files})")
                 remote_filepath = f"{remote_path}/{filename}"
                 local_filepath = os.path.join(local_dir, filename)
-                log_callback(f"Downloading: {filename} ({i + 1}/{total_files})")
 
                 try:
-                    if self.sftp.isdir(remote_filepath):
-                        os.makedirs(local_filepath, exist_ok=True)
+                    if self.is_directory(remote_filepath):
+                        log_callback(f"Entering directory: {remote_filepath}")
                         self.get_folder(remote_filepath, local_filepath, log_callback)
                     else:
                         self.sftp.get(remote_filepath, local_filepath)
                         print(f"Downloaded {filename} to {local_filepath}")
-
                 except Exception as e:
                     print(f"Error downloading {filename}: {e}")
-                
+
                 local_file_crc32 = self.calculate_crc32(local_filepath)
                 if local_file_crc32 is None:
                     print(f"Skipping {local_filepath} due to CRC calculation error.")
-
+                
                 print(f"Local crc32: {local_file_crc32}")
 
                 remote_file_crc32 = self.get_remote_file_crc32(remote_filepath)
                 if remote_file_crc32 is None:
                     print("Unable to calculate CRC32 for remote file.")
-
+                
                 print(f"Remote crc32: {remote_file_crc32}")
 
                 if local_file_crc32 == remote_file_crc32:
@@ -161,10 +161,15 @@ class Arinc615(paramiko.SSHClient):
                     print(f'{filename}: CRC32 mismatch')
                     log_callback(f'{filename}: CRC32 mismatch')
 
-            log_callback(f"Successfully downloaded {remote_path} to {local_dir}")
-
         except Exception as e:
             print(f"Error: {e}")
+
+    def is_directory(self, remote_path):
+        try:
+            # Check if the remote path is a directory 
+            return self.sftp.stat(remote_path).st_mode & 0o40000 == 0o40000
+        except:
+            return False
 
     def send_file(self, acc_path, local_path, log_callback):
         try:
@@ -221,7 +226,7 @@ class Arinc615(paramiko.SSHClient):
 
         except Exception as e:
             print(f"Error getting file: {e}")
-    
+
     def delete_folder(self, dir_path, log_callback):
         try:
             cmd = "rm -r "  + dir_path
@@ -252,7 +257,7 @@ class Arinc615(paramiko.SSHClient):
     
     def check_crc(self):
         try:
-            cmd = "bash " + '/home/merlin/Desktop/crc32.sh'
+            cmd = "bash " + 'h'
             stdin,stdout,stderr = self.exec_command(cmd)
             error = stderr.read().decode()
             if error:
@@ -265,7 +270,6 @@ class Arinc615(paramiko.SSHClient):
         except Exception as e:
             print(f"Error calculating CRC of ACC: {e}")
   
-
 
 class Arinc615App(tk.Tk):
     def __init__(self):
@@ -402,10 +406,10 @@ class Arinc615App(tk.Tk):
     
     def check_crc(self):
         if self.arinc:
-            self.arinc.send_file("","", self.log)
+            self.arinc.send_file(h, h, self.log)
             crc = self.arinc.check_crc()
             self.log(crc)
-            self.arinc.delete_file("", self.log)
+            self.arinc.delete_file(h, self.log)
         else:
             messagebox.showerror("Error", "Not connected to the SSH server.")
 
